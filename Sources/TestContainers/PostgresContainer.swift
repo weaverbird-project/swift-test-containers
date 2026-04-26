@@ -37,6 +37,10 @@ public struct PostgresContainer: Sendable, Hashable {
     /// Custom wait strategy. If nil, defaults to pg_isready exec check.
     public var waitStrategy: WaitStrategy?
 
+    /// Whether to opt the container into reuse (still requires global
+    /// reuse to be enabled via `TESTCONTAINERS_REUSE_ENABLE=true`).
+    public var reuse: Bool
+
     /// Host address for connecting to the container.
     public var host: String
 
@@ -56,7 +60,17 @@ public struct PostgresContainer: Sendable, Hashable {
         self.port = PostgresContainer.defaultPort
         self.environment = [:]
         self.waitStrategy = nil
+        self.reuse = false
         self.host = "127.0.0.1"
+    }
+
+    /// Opts this container into reuse. Reuse requires
+    /// `TESTCONTAINERS_REUSE_ENABLE=true` (or equivalent
+    /// `~/.testcontainers.properties`) on the host as well.
+    public func withReuse(_ enabled: Bool = true) -> Self {
+        var copy = self
+        copy.reuse = enabled
+        return copy
     }
 
     /// Sets the database name to create.
@@ -131,6 +145,7 @@ public struct PostgresContainer: Sendable, Hashable {
             .withEnvironment(env)
             .withExposedPort(port)
             .withHost(host)
+            .withReuse(reuse)
 
         // Apply wait strategy (default or custom)
         if let waitStrategy = waitStrategy {
