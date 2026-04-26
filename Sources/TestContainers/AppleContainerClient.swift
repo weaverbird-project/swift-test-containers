@@ -226,6 +226,29 @@ public struct AppleContainerClient: ContainerRuntime, Sendable {
         )
     }
 
+    /// Apple container's networking model is per-container IP — every
+    /// container gets a host-routable IPv4 address (typically
+    /// `192.168.64.x`) and there's no port-publish remapping. We resolve
+    /// to `(<container-ip>, containerPort)` so callers can connect
+    /// directly without a host port.
+    public func endpoint(id: String, containerPort: Int) async throws -> (host: String, port: Int) {
+        let inspection = try await inspect(id: id)
+        // Prefer the named-network IP if present; fall back to the flat
+        // `ipAddress` field. Apple container's inspection populates
+        // both, but order isn't guaranteed.
+        let ip = inspection.networkSettings.networks.values
+            .compactMap { $0.ipAddress.split(separator: "/").first.map(String.init) }
+            .first(where: { !$0.isEmpty })
+            ?? inspection.networkSettings.ipAddress.split(separator: "/").first.map(String.init)
+            ?? ""
+        guard !ip.isEmpty else {
+            throw TestContainersError.unexpectedDockerOutput(
+                "container \(id) has no resolvable IPv4 address"
+            )
+        }
+        return (ip, containerPort)
+    }
+
     public func inspect(id: String) async throws -> ContainerInspection {
         let output = try await runCmd(["inspect", id])
         return try Self.parseAppleInspect(output.stdout)

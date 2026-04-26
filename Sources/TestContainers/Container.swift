@@ -166,8 +166,20 @@ public actor Container {
     }
 
     public func endpoint(for containerPort: Int) async throws -> String {
-        let port = try await hostPort(containerPort)
-        return "\(request.host):\(port)"
+        // Resolve through the runtime so per-container-IP runtimes
+        // (Apple container) return the right `<ip>:<port>` rather than
+        // the misleading `127.0.0.1:<container-port>`.
+        let endpoint = try await runtime.endpoint(id: id, containerPort: containerPort)
+        return "\(endpoint.host):\(endpoint.port)"
+    }
+
+    /// Returns the host the container's `containerPort` is reachable on.
+    ///
+    /// On Docker this is the configured host (typically `127.0.0.1`).
+    /// On Apple container this is the container's own IPv4 address.
+    public func hostAddress(for containerPort: Int) async throws -> String {
+        let endpoint = try await runtime.endpoint(id: id, containerPort: containerPort)
+        return endpoint.host
     }
 
     public func logs() async throws -> String {
@@ -697,9 +709,13 @@ public actor Container {
                 }
             }
         case let .tcpPort(containerPort, timeout, pollInterval):
-            let hostPort = try await runtime.port(id: id, containerPort: containerPort)
-            let host = request.host
-            let desc = "TCP port \(host):\(hostPort) to accept connections"
+            // Resolve through the runtime's endpoint abstraction so the
+            // probe targets the right (host, port) for both Docker
+            // (host-mapped) and Apple container (per-container IP).
+            let endpoint = try await runtime.endpoint(id: id, containerPort: containerPort)
+            let probeHost = endpoint.host
+            let probePort = endpoint.port
+            let desc = "TCP port \(probeHost):\(probePort) to accept connections"
             if diagnosticsEnabled {
                 try await Waiter.waitWithDiagnostics(
                     timeout: timeout,
@@ -707,11 +723,11 @@ public actor Container {
                     description: desc,
                     onTimeout: { [self] in await collectDiagnostics(description: desc) }
                 ) {
-                    TCPProbe.canConnect(host: host, port: hostPort, timeout: .milliseconds(200))
+                    TCPProbe.canConnect(host: probeHost, port: probePort, timeout: .milliseconds(200))
                 }
             } else {
                 try await Waiter.wait(timeout: timeout, pollInterval: pollInterval, description: desc) {
-                    TCPProbe.canConnect(host: host, port: hostPort, timeout: .milliseconds(200))
+                    TCPProbe.canConnect(host: probeHost, port: probePort, timeout: .milliseconds(200))
                 }
             }
         case let .http(config):

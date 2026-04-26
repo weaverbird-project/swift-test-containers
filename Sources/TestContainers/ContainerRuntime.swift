@@ -42,6 +42,20 @@ public protocol ContainerRuntime: Sendable {
     func inspect(id: String) async throws -> ContainerInspection
     func healthStatus(id: String) async throws -> ContainerHealthStatus
 
+    /// Returns a `(host, port)` pair the host can reach `containerPort` on.
+    ///
+    /// On Docker this is `("127.0.0.1", <runtime-allocated-host-port>)`,
+    /// derived from the container's port-publish mapping.
+    ///
+    /// On runtimes with per-container IP networking (Apple `container`),
+    /// this is `(<container-ip>, containerPort)`. The container's IP is
+    /// directly routable from the host, so no port-publish is needed.
+    ///
+    /// Default implementation calls `port(id:containerPort:)` and pairs
+    /// the result with `127.0.0.1`, preserving existing Docker
+    /// behaviour for any runtime that doesn't override.
+    func endpoint(id: String, containerPort: Int) async throws -> (host: String, port: Int)
+
     // MARK: - Exec
 
     func exec(id: String, command: [String]) async throws -> Int32
@@ -74,6 +88,15 @@ public protocol ContainerRuntime: Sendable {
 
 /// Default parameter values for protocol methods.
 public extension ContainerRuntime {
+    /// Default implementation pairs the runtime's `port(...)` mapping
+    /// with `127.0.0.1`, preserving existing Docker behaviour for any
+    /// runtime that doesn't override. Per-container-IP runtimes
+    /// (Apple `container`) override to return `(<container-ip>, containerPort)`.
+    func endpoint(id: String, containerPort: Int) async throws -> (host: String, port: Int) {
+        let port = try await port(id: id, containerPort: containerPort)
+        return ("127.0.0.1", port)
+    }
+
     func imageExists(_ image: String) async -> Bool {
         await imageExists(image, platform: nil)
     }
