@@ -226,16 +226,30 @@ public struct AppleContainerClient: ContainerRuntime, Sendable {
         )
     }
 
-    /// Apple container's networking model is per-container IP — every
-    /// container gets a host-routable IPv4 address (typically
-    /// `192.168.64.x`) and there's no port-publish remapping. We resolve
-    /// to `(<container-ip>, containerPort)` so callers can connect
-    /// directly without a host port.
+    /// Apple container's networking model gives each container its own
+    /// IPv4 address (typically `192.168.64.x`) directly routable from
+    /// the host. By default we connect via the container IP at the
+    /// unmapped container port — no port-publish remap is needed.
+    ///
+    /// However Apple container ALSO supports fixed `-p <hostport>:<containerport>`
+    /// publishing that does forward to the host (verified
+    /// experimentally). For containers configured that way (e.g.
+    /// services that advertise their bootstrap address back to clients
+    /// and need a host-reachable name like `localhost:<port>`), we
+    /// honour the published host port and return `(127.0.0.1, hostPort)`
+    /// instead, so callers and metadata-advertised addresses agree.
     public func endpoint(id: String, containerPort: Int) async throws -> (host: String, port: Int) {
         let inspection = try await inspect(id: id)
-        // Prefer the named-network IP if present; fall back to the flat
-        // `ipAddress` field. Apple container's inspection populates
-        // both, but order isn't guaranteed.
+
+        // If the container has a published host-port mapping for this
+        // container port, prefer that. Matches Docker's behaviour and
+        // means advertise-address shenanigans (Kafka, etc.) line up.
+        if let binding = inspection.networkSettings.ports.first(where: { $0.containerPort == containerPort }),
+           let hostPort = binding.hostPort {
+            return ("127.0.0.1", hostPort)
+        }
+
+        // Otherwise fall back to the per-container IP at the unmapped port.
         let ip = inspection.networkSettings.networks.values
             .compactMap { $0.ipAddress.split(separator: "/").first.map(String.init) }
             .first(where: { !$0.isEmpty })
