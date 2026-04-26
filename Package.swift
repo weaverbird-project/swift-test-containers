@@ -14,7 +14,12 @@ let package = Package(
         )
     ],
     dependencies: [
-        .package(url: "https://github.com/swiftlang/swift-subprocess.git", branch: "main"),
+        // Pinned to stable tag 0.4 (rather than upstream's `branch: "main"`)
+        // so weaverbird consumers can pin this fork to a stable version
+        // — SPM forbids stable-pinned packages depending on branch-pinned
+        // ones. Verified: swift-test-containers' uses of
+        // `Subprocess.Environment.Key` are present in swift-subprocess 0.4.
+        .package(url: "https://github.com/swiftlang/swift-subprocess.git", from: "0.4.0"),
         // Range covers swift-crypto 3.x and 4.x. Upstream is pinned to
         // `from: "3.0.0"` but the only API used in the package is
         // `Insecure.SHA1.hash(data:)` in `ContainerReuse.swift`, which has

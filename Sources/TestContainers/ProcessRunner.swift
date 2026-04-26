@@ -121,8 +121,10 @@ struct ProcessRunner: Sendable {
         switch terminationStatus {
         case .exited(let code):
             exitCode = Int32(code)
-        case .unhandledException(let code):
+        #if !os(Windows)
+        case .signaled(let code):
             exitCode = Int32(code)
+        #endif
         }
         return CommandOutput(
             stdout: stdout ?? "",
@@ -164,7 +166,7 @@ struct ProcessRunner: Sendable {
                         .name(executable),
                         arguments: Arguments(arguments),
                         environment: env,
-                        error: .combineWithOutput  // Combine stderr with stdout
+                        error: .combinedWithOutput  // Combine stderr with stdout
                     ) { execution, standardOutput in
                         // Use built-in lines() method for line-by-line parsing
                         for try await line in standardOutput.lines() {
